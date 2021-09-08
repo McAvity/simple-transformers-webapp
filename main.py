@@ -2,34 +2,49 @@
 https://fastapi.tiangolo.com/advanced/custom-response/#html-response
 """
 
+""" question_answering example
+What is 42? 
+***
+Scott Adams is the author of a book  "Hitchhiker's guide to the galaxy" in which he stated that 42 was the answer to life, the universe and everything; the answer was given by a big computer of a size of the earth.
 """
-question: What is 42? 
-question: Who wrote the book? 
 
-context: Scott Adams is the author of a book  "Hitchhiker's guide to the galaxy" in which he stated that 42 was the answer to life, the universe and everything; the answer was given by a big computer of a size of the earth.
+""" zero-shot-classification example
+religion,politics,language,artificial intelligence,geography,science, programming
+***
+The origins of the document go back to the bishops’ fight with pro-choice Catholic politicians, such as John Kerry, over the legalization of abortion. Some bishops, like Cardinal Raymond Burke, wanted to punish pro-choice Catholic politicians by denying them Communion. Other bishops, such as the late Cardinal Francis George of Chicago, disagreed. George said he did not want his priests playing cop at the Communion rail.
 """
+
+
 from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from enum import Enum
 
+from transformers import pipeline
+
+
 app = FastAPI()
 templates = Jinja2Templates(directory="templates/")
 
 class dropdownChoices(str, Enum):
-    translation_en_to_fr = "translation_en_to_fr"
-    translation_fr_to_en = "translation_fr_to_en"
-    sentiment_analysis = "sentiment-analysis"
-    text_generation = "text-generation"
-    text2text_generation = "text2text-generation"
-    summarization = "summarization"
+    translation_en_to_fr = "translate_en_to_fr"
+    translation_fr_to_en = "translate_fr_to_en"
+    sentiment_analysis = "sentiment_analysis"
+    text_generation = "generate_text_gpt-neo-125M"
+    text_generation2 = "generate_text_gpt-neo-1.3B"
+    question_answering = "question_answering"
+    summarization = "summarize"
+    zero_shot_classification = "zero-shot-classification"
 
-# models not mentioned here will be [None], so default model will be loaded
 specific_models={}
-specific_models[dropdownChoices.translation_fr_to_en] = 'Helsinki-NLP/opus-mt-fr-en'
-specific_models[dropdownChoices.text_generation] = 'EleutherAI/gpt-neo-1.3B'
-specific_models[dropdownChoices.sentiment_analysis] = 'finiteautomata/beto-sentiment-analysis'
-specific_models[dropdownChoices.summarization] = 'sshleifer/distilbart-cnn-12-6'
+specific_models[dropdownChoices.translation_en_to_fr] = {'task':'translation_en_to_fr', 'model': 'Helsinki-NLP/opus-mt-en-fr'}
+specific_models[dropdownChoices.translation_fr_to_en] = {'task':'translation_fr_to_en', 'model': 'Helsinki-NLP/opus-mt-fr-en'}
+specific_models[dropdownChoices.sentiment_analysis] = {'task':'sentiment-analysis', 'model': 'finiteautomata/beto-sentiment-analysis'}
+specific_models[dropdownChoices.text_generation] = {'task':'text-generation', 'model': 'EleutherAI/gpt-neo-125M'}
+specific_models[dropdownChoices.text_generation2] = {'task':'text-generation', 'model': 'EleutherAI/gpt-neo-1.3B'}
+specific_models[dropdownChoices.question_answering] = {'task':'question-answering', 'model': None}
+specific_models[dropdownChoices.summarization] = {'task':'summarization', 'model': 'sshleifer/distilbart-cnn-12-6'}
+specific_models[dropdownChoices.zero_shot_classification] = {'task':'zero-shot-classification', 'model': 'facebook/bart-large-mnli'}
 
 # list of models that need sentence splitting, i.e. translation and sentiment analysis.
 models_to_split=[
@@ -39,16 +54,21 @@ models_to_split=[
                 ]
 pipelines={}
 
-def get_pipeline(name, model = None):
-    from transformers import pipeline
+def get_pipeline(name):
+    tuple = pipelines.get(name)
+
+    if(not tuple):
+        m = specific_models.get(name)
+        model = m['model']
+        task = m['task']
+
+        print(f"[{name}]: creating [{task}] pipeline, with model [{model}]")
+        p = pipeline(task, model=model)
+        pipelines[name] = model,task,p
+    else:
+        model,task,p = tuple
     
-    p = pipelines.get(name)
-    if(not p):
-        model = specific_models.get(name)
-        print(f"creating [{name}] pipeline, with model [{model}]")
-        p = pipeline(name, model=model)
-        pipelines[name] = p
-    return p
+    return model,task,p
 
 @app.get("/", response_class=HTMLResponse)
 async def read_items():
@@ -73,21 +93,44 @@ def form_get(request: Request):
 @app.post("/form")
 def form_post(request: Request, 
               text: str = Form(...),
-              model_name: dropdownChoices = Form(dropdownChoices.translation_en_to_fr)):
-    p = get_pipeline(model_name)
+              model_name: dropdownChoices = Form(dropdownChoices.translation_en_to_fr),
+              send_json_response: bool = Form(False)):
+    import time
+
+    t0 = time.time()
+
+    model,task,p = get_pipeline(model_name)
 
     if model_name in models_to_split:
         input = map(lambda s: s.strip(), text.split('.'))
         input = list(filter(lambda x: len(x) > 0, input))
+        result = p(input)
+    elif model_name == dropdownChoices.zero_shot_classification:
+        t1,t2 = [x.strip() for x in text.split('***')]
+        labels = [x.strip() for x in t1.split(',')]
+        input = [t2]
+        print(f"input={input}\nlabels={labels}")
+        result = p(input, labels, multi_class=True)
+    elif model_name == dropdownChoices.question_answering:
+        question,context = [x.strip() for x in text.split('***')]
+        print(f"question={question}\ncontext={context}")
+        input = [context]
+        result = p(question=question, context=context)
     else:
         input = [text]
+        result = p(input)
 
-    result = p(input)
+    info = {'time': round(time.time()-t0, 2) , 
+            'input': input,
+            'task':task,
+            'model':model}
 
     return templates.TemplateResponse(
         "form.html", context={"request": request, 
                     "text": text, 
                     "model_name": model_name, 
                     'model_names': [e.value for e in dropdownChoices], 
-                    'result': result}
+                    'result': result,
+                    'info': info}
     )
+

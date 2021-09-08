@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Hello world</title>
+    <title>NLP demo</title>
 </head>
 <body>
 <form method="post">
@@ -15,9 +15,25 @@
         >{{m}}</option>
         {% endfor %}
     </select>
-    <textarea name="text" rows="10" cols="100">{{ text }}</textarea>
+    <br/>
+    <textarea name="text" rows="10" cols="60">{{ text }}</textarea>
+    <br/>
     <input type="submit">
 </form>
-<p>{{ result }}</p>
+
+
+
+
+{% if info %}
+<h1>Info</h1>
+<ul>
+    <li>time: {{ info['time'] }} sec</li>
+    <li>task: {{ info['task'] }}</li>
+    <li>model: {{ info['model'] }}</li>
+    <li>input: {{ info['input'] }}</li>
+</ul>
+<h1>Result</h1>
+<b>{{ result }}</b>
+{% endif %}
 </body>
 </html>
