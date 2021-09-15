@@ -5,7 +5,7 @@ https://fastapi.tiangolo.com/advanced/custom-response/#html-response
 """ question_answering example
 What is 42? 
 ***
-Scott Adams is the author of a book  "Hitchhiker's guide to the galaxy" in which he stated that 42 was the answer to life, the universe and everything; the answer was given by a big computer of a size of the earth.
+Douglas Adams is the author of a book  "Hitchhiker's guide to the galaxy" in which he stated that 42 was the answer to life, the universe and everything; the answer was given by a big computer of a size of the earth.
 """
 
 """ zero-shot-classification example
@@ -22,10 +22,11 @@ from enum import Enum
 
 from transformers import pipeline
 
-
+# fastAPI setup
 app = FastAPI()
 templates = Jinja2Templates(directory="templates/")
 
+# dropdown definition
 class dropdownChoices(str, Enum):
     translation_en_to_fr = "translate_en_to_fr"
     translation_fr_to_en = "translate_fr_to_en"
@@ -36,6 +37,7 @@ class dropdownChoices(str, Enum):
     summarization = "summarize"
     zero_shot_classification = "zero-shot-classification"
 
+# definition of models used by the dropdown choices
 specific_models={}
 specific_models[dropdownChoices.translation_en_to_fr] = {'task':'translation_en_to_fr', 'model': 'Helsinki-NLP/opus-mt-en-fr'}
 specific_models[dropdownChoices.translation_fr_to_en] = {'task':'translation_fr_to_en', 'model': 'Helsinki-NLP/opus-mt-fr-en'}
@@ -54,6 +56,7 @@ models_to_split=[
                 ]
 pipelines={}
 
+# creation and caching of models
 def get_pipeline(name):
     tuple = pipelines.get(name)
 
@@ -70,6 +73,7 @@ def get_pipeline(name):
     
     return model,task,p
 
+# index page
 @app.get("/", response_class=HTMLResponse)
 async def read_items():
     return """
@@ -83,6 +87,7 @@ async def read_items():
     </html>
     """
 
+# get request logic
 @app.get("/form")
 def form_get(request: Request):
     text = "Enter some text."
@@ -90,6 +95,7 @@ def form_get(request: Request):
         "form.html", context={"request": request, "text": text, 'model_names': [e.value for e in dropdownChoices], 'model_name': dropdownChoices.translation_en_to_fr}
     )
 
+# post request logic
 @app.post("/form")
 def form_post(request: Request, 
               text: str = Form(...),
@@ -102,21 +108,25 @@ def form_post(request: Request,
     model,task,p = get_pipeline(model_name)
 
     if model_name in models_to_split:
+        # for models that only use single sentences, we need to slit them
         input = map(lambda s: s.strip(), text.split('.'))
         input = list(filter(lambda x: len(x) > 0, input))
         result = p(input)
     elif model_name == dropdownChoices.zero_shot_classification:
+        #for zero classification we need two parameters, so we split input by ***
         t1,t2 = [x.strip() for x in text.split('***')]
         labels = [x.strip() for x in t1.split(',')]
         input = [t2]
         print(f"input={input}\nlabels={labels}")
         result = p(input, labels, multi_class=True)
     elif model_name == dropdownChoices.question_answering:
+        #for question asswering we need two parameters, so we split input by ***
         question,context = [x.strip() for x in text.split('***')]
         print(f"question={question}\ncontext={context}")
         input = [context]
         result = p(question=question, context=context)
     else:
+        # any other case (no splitting sentences, just one parameter needed for the pipeline)
         input = [text]
         result = p(input)
 
